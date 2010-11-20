@@ -84,6 +84,8 @@ class DiscogsAlbumAgent(Agent.Album):
   
   def search(self, results, media, lang):
     searchResponse = XML.ElementFromURL(DISCOGS_SEARCH % ('all', '"' + String.Decode(media.parent_metadata.id) + '"+"' + String.Quote(media.album) + '"'))
+    if searchResponse.xpath('//searchresults')[0].get('numResults') == '0':
+      searchResponse = XML.ElementFromURL(DISCOGS_SEARCH % ('all', '"' + String.Decode(media.parent_metadata.id) + '"+' + String.Quote(media.album)))
     score = 100
     for s in searchResponse.xpath('//result[@type="release"]')[:5]: #@type="master" or 
       id = s.xpath('./uri')[0].text.split('/')[-1]
@@ -112,7 +114,10 @@ class DiscogsAlbumAgent(Agent.Album):
         except:
           pass
     metadata.title = releaseXML.xpath('//title')[0].text
-    date = releaseXML.xpath('//released')[0].text
+    try:
+      date = releaseXML.xpath('//released')[0].text
+    except:
+      date = ''
     if len(date)==4:
       date = '1/1/' + date
     metadata.originally_available_at = None
