@@ -29,7 +29,7 @@ class DiscogsAgent(Agent.Artist):
       for a in searchResponse.xpath(resultType):
         name = a.xpath('./title')[0].text
         id = String.Encode(a.xpath('./uri')[0].text.replace(BASE_URL + '/artist/','').split('?')[0].encode('utf-8'))
-        Log('id: ' + id + '  name: '+ name + ' score: ' + str(score)) # + '   thumb: ' + str(r[2]))
+        Log('id: ' + String.Decode(id) + '  name: '+ name + ' score: ' + str(score)) # + '   thumb: ' + str(r[2]))
         results.Append(MetadataSearchResult(id = id, name = name, lang  = lang, score = score))
         score = score - 1
     
@@ -83,23 +83,35 @@ class DiscogsAlbumAgent(Agent.Album):
   languages = [Locale.Language.English] 
   
   def search(self, results, media, lang):
-    searchResponse = XML.ElementFromURL(DISCOGS_SEARCH % ('all', '"' + String.Decode(media.parent_metadata.id) + '"+"' + String.Quote(media.album) + '"'))
+    searchResponse = XML.ElementFromURL(DISCOGS_SEARCH % ('releases', '"' + String.Decode(media.parent_metadata.id) + '"+"' + String.Quote(media.album) + '"'))
     if searchResponse.xpath('//searchresults')[0].get('numResults') == '0':
-      searchResponse = XML.ElementFromURL(DISCOGS_SEARCH % ('all', '"' + String.Decode(media.parent_metadata.id) + '"+' + String.Quote(media.album)))
-    score = 100
-    for s in searchResponse.xpath('//result[@type="release"]')[:5]: #@type="master" or 
-      id = s.xpath('./uri')[0].text.split('/')[-1]
-      releaseXML = XML.ElementFromURL(DISCOGS_RELEASE % id)
-      name = releaseXML.xpath('//title')[0].text
-      try:
-        thumb = releaseXML.xpath('//images/image[@type="primary"]')[0].get('uri')
-      except:
+      searchResponse = XML.ElementFromURL(DISCOGS_SEARCH % ('releases', '"' + String.Decode(media.parent_metadata.id) + '"+' + String.Quote(media.album)))
+    if searchResponse.xpath('//searchresults')[0].get('numResults') == '0':
+    #if 1==1:
+      artistXML = XML.ElementFromURL(DISCOGS_ARTIST % String.Decode(media.parent_metadata.id))
+      for r in artistXML.xpath('//releases/release'):
+        id = r.get('id')
+        name = r.xpath('./title')[0].text
+        dist = Util.LevenshteinDistance(name, media.album)
+        Log('Album from Scanner: ' + media.album) 
+        Log('Album from Discogs:' + name + ' || score: ' + str(dist))
+        results.Append(MetadataSearchResult(id = id, name = name, thumb = None, lang = lang, score = 90-dist))
+      results.Sort('score', descending=True)
+    else:
+      score = 100
+      for s in searchResponse.xpath('//result[@type="release"]')[:5]: #@type="master" or 
+        id = s.xpath('./uri')[0].text.split('/')[-1]
+        releaseXML = XML.ElementFromURL(DISCOGS_RELEASE % id)
+        name = releaseXML.xpath('//title')[0].text
         try:
-          thumb = releaseXML.xpath('//images/image[@type="secondary"]')[0].get('uri')
+          thumb = releaseXML.xpath('//images/image[@type="primary"]')[0].get('uri')
         except:
-          thumb = None
-      results.Append(MetadataSearchResult(id = id, name = name, thumb = thumb, lang  = lang, score = score))
-      score = score - 1
+          try:
+            thumb = releaseXML.xpath('//images/image[@type="secondary"]')[0].get('uri')
+          except:
+            thumb = None
+        results.Append(MetadataSearchResult(id = id, name = name, thumb = thumb, lang  = lang, score = score))
+        score = score - 1
  
   def update(self, metadata, media, lang):
     releaseXML = XML.ElementFromURL(DISCOGS_RELEASE % metadata.id)
@@ -114,6 +126,14 @@ class DiscogsAlbumAgent(Agent.Album):
         except:
           pass
     metadata.title = releaseXML.xpath('//title')[0].text
+    try:
+      metadata.summary = releaseXML.xpath('//notes')[0].text
+    except:
+      pass
+    try:
+      metadata.studio = releaseXML.xpath('//labels/label')[0].get('name')
+    except:
+      pass
     try:
       date = releaseXML.xpath('//released')[0].text
     except:
@@ -130,4 +150,18 @@ class DiscogsAlbumAgent(Agent.Album):
         except:
           pass
     for track in releaseXML.xpath('//track'):
-      metadata.tracks[track.xpath('./position')[0].text].name = track.xpath('./title')[0].text
+      trackNum = track.xpath('./position')[0].text
+      if not trackNum:
+        trackNum = ''
+      metadata.tracks[trackNum].name = track.xpath('./title')[0].text
+      
+    #Log("tracks:")
+    #for t in metadata.tracks:
+    #  Log(t)
+    Log('metadata.originally_available_at: ' + str(metadata.originally_available_at))
+    Log('date: ' + date)
+    Log('metadata.title: ' + metadata.title)
+    Log('metadata.studio: ' + metadata.studio)
+    #Log('metadata.posters: ')
+    #for p in metadata.posters:
+    #  Log(p)
